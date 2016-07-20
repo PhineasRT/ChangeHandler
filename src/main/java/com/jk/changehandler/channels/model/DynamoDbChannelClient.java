@@ -26,13 +26,17 @@ public class DynamoDbChannelClient {
      * @return
      */
     public List<DynamoDbChannel> getAllChannels() {
-//        List<String> channels = jedis.pubsubChannels("*");
-//
-//        List<DynamoDbChannel> dynamoDbChannels = channels.stream()
-//                .map(s -> DynamoDbChannel.builder().channelName(s).build())
-//                .collect(Collectors.toList());
+        if(System.getProperty("ENV") != null && System.getProperty("ENV").equals("dev"))
+            return  testGetAllChannels();
 
-        return  testGetAllChannels();
+        List<String> channels = jedis.pubsubChannels("*");
+
+        List<DynamoDbChannel> dynamoDbChannels = channels.stream()
+                .map(s -> DynamoDbChannel.builder().channelName(s).build())
+                .collect(Collectors.toList());
+
+        return dynamoDbChannels;
+
     }
 
     public List<DynamoDbChannel> testGetAllChannels() {

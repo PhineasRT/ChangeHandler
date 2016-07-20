@@ -13,6 +13,7 @@ import com.amazonaws.services.kinesis.clientlibrary.types.ShutdownReason;
 import com.amazonaws.services.kinesis.model.Record;
 import com.jk.changehandler.change.model.DynamoDBChange;
 import com.jk.changehandler.change.processor.DynamoDBChangeProcessor;
+import lombok.extern.log4j.Log4j2;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,10 +26,9 @@ import java.util.List;
 /**
  * Polls kinesis stream of database changes and processes it
  */
+@Log4j2
 @Component
 public class ChangeStreamProcessor implements IRecordProcessor {
-    private static final Logger log = LogManager.getLogger(ChangeStreamProcessor.class);
-
     // Backoff and retry settings
     private static final long BACKOFF_TIME_IN_MILLIS = 3000L;
     private static final int NUM_RETRIES = 10;
@@ -94,9 +94,7 @@ public class ChangeStreamProcessor implements IRecordProcessor {
             boolean processedSuccessfully = false;
             for (int i = 0; i < NUM_RETRIES; i++) {
                 try {
-                    //
-                    // Logic to process record goes here.
-                    //
+
                     processSingleRecord(record);
                     processedSuccessfully = true;
                     break;

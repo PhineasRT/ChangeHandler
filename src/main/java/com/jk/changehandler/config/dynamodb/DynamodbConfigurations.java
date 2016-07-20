@@ -5,22 +5,23 @@ import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBStreamsClient;
 import com.jk.changehandler.change.processor.Dyno;
+import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang.Validate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+@Log4j2
 @Configuration
 public class DynamodbConfigurations {
     public final static String DYAMODB_LOCAL_CLIENT = "dynamoDbLocalClient";
     public final static String DYNAMODB_CLIENT = "dynamoDbClient";
 
-    public final static String TABLE_NAME = "SecondaryIndexTest";
-    public final static String STREAM_ARN = "arn:aws:dynamodb:us-east-1:467623578459:table/SecondaryIndexTest/stream/2015-08-26T20:12:03.858";
-
+    public static String TABLE_NAME;
 
     @Bean
     public AWSCredentialsProvider getCredentials() {
-        return new ProfileCredentialsProvider("shridhardotjatin");
+        return new ProfileCredentialsProvider();
     }
 
     @Bean(name = DYNAMODB_CLIENT)
@@ -38,13 +39,11 @@ public class DynamodbConfigurations {
     @Bean(name = DYAMODB_LOCAL_CLIENT)
     public AmazonDynamoDBClient getDynamoDbLocalClient() {
         AmazonDynamoDBClient client = new AmazonDynamoDBClient(getCredentials());
-        client.setEndpoint("http://localhost:8000");
+        String endpoint = "http://dd-local:8000";
+        log.info("Dynamodb local endpoint {}", endpoint);
+        client.setEndpoint(endpoint);
         return client;
     }
 
-    @Bean
-    public Dyno getDyno() {
-        return Dyno.builder().dynamodb(getDynamoDbLocalClient()).tableName(DynamodbConfigurations.TABLE_NAME).build();
-    }
 }
 

@@ -49,10 +49,10 @@ public class QueryJsonUnmarshaller implements Unmarshaller<QueryRequest, JSONObj
         parser.addTypeHint(".keyConditionExpression", String.class);
         query = parser.parse(QueryRequest.class, reducedJSONrequest.toString());
 
-        log.info("jsonObject: {}", jsonObject.toString());
+        log.debug("jsonObject: {}", jsonObject.toString());
         // parse "ExpressionAttributeValues"
         if(jsonObject.has(EXPR_ATTR_VALUES)) {
-            log.info("has {} ?: YES", EXPR_ATTR_VALUES);
+            log.debug("has {} ?: YES", EXPR_ATTR_VALUES);
             Map<String, AttributeValue> expressionAttributeValuesMap = new HashMap<>();
             JSONObject expressionAttributeValueField = jsonObject.getJSONObject(EXPR_ATTR_VALUES);
             for (final String key : expressionAttributeValueField.keySet()) {

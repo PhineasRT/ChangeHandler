@@ -8,6 +8,7 @@ import com.amazonaws.services.kinesis.clientlibrary.interfaces.v2.IRecordProcess
 import com.amazonaws.services.kinesis.clientlibrary.lib.worker.InitialPositionInStream;
 import com.amazonaws.services.kinesis.clientlibrary.lib.worker.KinesisClientLibConfiguration;
 import com.jk.changehandler.config.dynamodb.DynamodbConfigurations;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,7 +27,9 @@ public final class ChangeStreamProcessorWorker {
     private final Logger log = LogManager.getLogger(ChangeStreamProcessorWorker.class);
 
     public static final String APPLICATION_NAME = "ChangeProcessor";
-    private static final String STREAM_ARN = DynamodbConfigurations.STREAM_ARN;
+
+    @Setter
+    private String STREAM_ARN;
 
     private AmazonDynamoDBStreamsAdapterClient adapterClient;
 
@@ -37,9 +40,10 @@ public final class ChangeStreamProcessorWorker {
     @Qualifier(DynamodbConfigurations.DYNAMODB_CLIENT)
     private AmazonDynamoDBClient dynamoDBClient;
 
-
     @Autowired
     private ChangeStreamProcessorFactory changeStreamProcessorFactory;
+
+
 
     private void init() {
         log.info("Initializing...");
@@ -86,7 +90,7 @@ public final class ChangeStreamProcessorWorker {
                 .build();
 
 
-        log.info("Running %s to process stream {} as worker {}...\n",
+        log.info("Running {} to process stream {} as worker {}...\n",
                 APPLICATION_NAME,
                 STREAM_ARN,
                 workerId);

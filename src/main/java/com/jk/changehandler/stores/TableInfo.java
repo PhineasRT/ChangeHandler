@@ -37,20 +37,27 @@ public class TableInfo {
         DescribeTableResult describeTableResponse = dynamoDBClient.describeTable(tableName);
         TableDescription table = describeTableResponse.getTable();
 
-        List<GlobalSecondaryIndex> gsis = table.getGlobalSecondaryIndexes().stream()
-                .map(desc -> new GSIDescToGSIUnmarshaller().unmarshall(desc))
-                .collect(Collectors.toList());
-
         CreateTableRequest createReq = new CreateTableRequest();
         createReq.setAttributeDefinitions(table.getAttributeDefinitions());
-        createReq.setGlobalSecondaryIndexes(gsis);
+
         createReq.setKeySchema(table.getKeySchema());
         createReq.setTableName(table.getTableName());
         createReq.setProvisionedThroughput(new ThroughputDescriptionUnmarhsaller().unmarshall(table.getProvisionedThroughput()));
 
+        if(hasGSI(table)) {
+            List<GlobalSecondaryIndex> gsis = table.getGlobalSecondaryIndexes().stream()
+                    .map(desc -> new GSIDescToGSIUnmarshaller().unmarshall(desc))
+                    .collect(Collectors.toList());
+            createReq.setGlobalSecondaryIndexes(gsis);
+        }
+
         // TODO: set lsi
 
         return createReq;
+    }
+
+    private boolean hasGSI(TableDescription table) {
+        return (table.getGlobalSecondaryIndexes() != null);
     }
 
     /**

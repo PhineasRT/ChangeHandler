@@ -5,6 +5,7 @@ import com.amazonaws.services.dynamodbv2.model.*;
 import com.jk.changehandler.config.dynamodb.DynamodbConfigurations;
 import com.jk.changehandler.stores.TableInfo;
 import lombok.Builder;
+import lombok.NonNull;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,15 +17,16 @@ import java.util.Map;
 /**
  * High level wrapper over dynamodb
  */
-@Builder
 public class Dyno {
     private static final Logger log = LogManager.getLogger(Dyno.class);
 
-    private AmazonDynamoDBClient dynamodb;
-    private String tableName;
+    @NonNull private AmazonDynamoDBClient dynamodb;
+    @NonNull private String tableName;
 
-    @Autowired
-    TableInfo tableInfo;
+    public Dyno(AmazonDynamoDBClient client, String tableName) {
+        this.dynamodb = client;
+        this.tableName = tableName;
+    }
 
     public PutItemResult putItem(Map<String, AttributeValue> item) {
         log.debug("Put item request for item: {} in table {}", item.toString(), tableName);
@@ -42,8 +44,7 @@ public class Dyno {
     public void deleteItem(Map<String, AttributeValue> item) {
         log.debug("Trying to delete item: {} from table {}", item.toString(), tableName);
 
-        // TODO: replace with this.getTableDescription() ?
-        TableDescription tableDescription = tableInfo.getTableDescription(tableName);
+        TableDescription tableDescription = this.getTableDescription();
         List<KeySchemaElement> keySchemaEls = tableDescription.getKeySchema();
 
         Map<String, AttributeValue> keySchemaMap = new HashMap<>();

@@ -5,6 +5,7 @@ import com.amazonaws.services.dynamodbv2.model.*;
 import com.jk.changehandler.config.dynamodb.DynamodbConfigurations;
 import com.jk.changehandler.transform.GetItemRequestJsonUnmarshaller;
 import com.jk.changehandler.transform.QueryJsonUnmarshaller;
+import lombok.NonNull;
 import org.apache.commons.lang.Validate;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,18 +24,14 @@ public class DynamoDBQuery implements IQuery<Map<String, AttributeValue>> {
 
     private AmazonDynamoDBClient localDynamoDb;
 
-    public DynamoDBQuery(String query) {
-        this(new JSONObject(query));
-    }
-
     public DynamoDBQuery(JSONObject q) {
-        if(q.getString("Operation").equals("Query")) {
+        if(q.getString("operation").equalsIgnoreCase("Query")) {
             this.operationType = DynamoDBOperationType.QUERY;
-        } else if(q.getString("Operation").equals("GetItemRequest")) {
+        } else if(q.getString("operation").equalsIgnoreCase("GetItemRequest")) {
             this.operationType = DynamoDBOperationType.GET_ITEM_REQUEST;
         }
 
-        this.query = q.getJSONObject("Query");
+        this.query = q.getJSONObject("params"); // json query to be executed
     }
 
     public DynamoDBQuery withDynamodbClient(AmazonDynamoDBClient client) {

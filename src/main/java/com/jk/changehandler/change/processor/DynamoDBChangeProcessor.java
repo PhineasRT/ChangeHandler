@@ -2,9 +2,12 @@ package com.jk.changehandler.change.processor;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.model.*;
+import com.amazonaws.util.json.JSONException;
+import com.amazonaws.util.json.JSONObject;
 import com.jk.changehandler.change.model.ChangeEventType;
 import com.jk.changehandler.change.model.DynamoDBChange;
 import com.jk.changehandler.change.model.DynamoDBQuery;
+import com.jk.changehandler.change.model.Notification;
 import com.jk.changehandler.channels.model.DynamoDbChannel;
 import com.jk.changehandler.channels.model.DynamoDbChannelClient;
 import com.jk.changehandler.config.dynamodb.DynamodbConfigurations;
@@ -44,7 +47,6 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
     @Autowired
     private DynamoDbChannelClient channelClient;
 
-    @Autowired
     private Dyno dyno;
 
     @Autowired
@@ -59,47 +61,78 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
     @Override
     public void process(DynamoDBChange change) {
         createTableInNotPresent(DynamodbConfigurations.TABLE_NAME);
+        dyno = new Dyno(localDynamoDb, DynamodbConfigurations.TABLE_NAME);
 
         switch (change.getEventType()) {
         case INSERT:
-            handleInsertOrRemove(change);
+            handleInsertOrRemove(change, change.getNewItem());
             break;
         case REMOVE:
-            handleInsertOrRemove(change);
+            handleInsertOrRemove(change, change.getOldItem());
             break;
         case MODIFY:
-            // TODO
+            handleModify(change);
             break;
         default:
             log.fatal("Unknown event type. Ctx: {}", change.toString());
         }
     }
 
+
+
     private void createTableInNotPresent(String tableName) {
         if(! TableExists.exists(tableName)) {
             CreateTableRequest req = tableInfo.getInfo(tableName);
             try {
                 final CreateTableResult table = localDynamoDb.createTable(req);
-                log.info("Created Table: {}", tableName);
+                log.info("Local table does not exist. Created Table: {}", tableName);
                 TableExists.setExists(tableName);
             } catch (ResourceInUseException e) {
-                log.error(e.getMessage());
+                log.info("Table already exists");
                 TableExists.setExists(tableName);
             }
         }
     }
 
-    private void handleInsertOrRemove(DynamoDBChange change) {
-        String tableName = DynamodbConfigurations.TABLE_NAME;
+    private void handleModify(DynamoDBChange change) {
+        Map<String, AttributeValue> oldItem = change.getOldItem();
+        Map<String, AttributeValue> newItem = change.getNewItem();
 
-        Map<String, AttributeValue> item = new HashMap<>();
+        dyno.putItem(oldItem);
+        List<DynamoDbChannel> channels = channelClient.getAllChannels();
+        List<Integer> returnCountsOld = channels.stream()
+            .map(QueryStore::getQueryForChannel)
+            .map(org.json.JSONObject::new)
+            .map(DynamoDBQuery::new)
+            .map(this::runQuery)
+            .collect(Collectors.toList());
+        dyno.deleteItem(oldItem);
 
-        if(change.getEventType() == ChangeEventType.INSERT) {
-            item = change.getNewItem();
-        } else if(change.getEventType() == ChangeEventType.REMOVE) {
-            item = change.getOldItem();
+        dyno.putItem(newItem);
+        List<Integer> returnCountsNew = channels.stream()
+            .map(QueryStore::getQueryForChannel)
+            .map(org.json.JSONObject::new)
+            .map(DynamoDBQuery::new)
+            .map(this::runQuery)
+            .collect(Collectors.toList());
+        dyno.deleteItem(newItem);
+
+        for(Integer i = 0; i < channels.size(); i++) {
+            DynamoDbChannel chan = channels.get(i);
+            ChangeEventType eventType = getEventType(returnCountsOld.get(i), returnCountsNew.get(i));
+            if(eventType == null) continue;
+            String notif = getNotificationString(change, eventType);
+            log.info("Chan: {}, notif: {}", chan.getChannelName(), notif);
+
+            if(System.getProperty("ENV") == null || !System.getProperty("ENV").equals("dev"))
+                chan.publish(notif.toString());
         }
 
+    }
+
+    private void handleInsertOrRemove(DynamoDBChange change, Map<String, AttributeValue> item) {
+        String tableName = DynamodbConfigurations.TABLE_NAME;
+        String notif = getNotificationString(change, null);
         final PutItemResult putResult = dyno.putItem(item);
 
         Validate.isTrue(
@@ -107,27 +140,23 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
                 "Count should be 1. Ctx: " + change.toString());
 
         List<DynamoDbChannel> channels = channelClient.getAllChannels();
-        log.info("Channels: {}", channels);
+        log.info("Channels count: {}", channels.size());
 
         // get all the queries corresponding to channels
         List<String> queries = channels.stream()
-                .map(chan -> QueryStore.getQuery(chan))
+                .map(chan -> QueryStore.getQueryForChannel(chan))
                 .collect(Collectors.toList());
 
-        log.info("Queries: {}", queries);
+        log.info("Queries count: {}", queries.size());
 
-        // execute each query against the table
+        // execute each query against the local table
         List<Integer> returnCounts = queries.stream()
-                .map(query -> new DynamoDBQuery(query))
-                .map(dynamoDBQuery -> {
-                    Integer size = 0;
-                    try {
-                        size = dynamoDBQuery.withDynamodbClient(localDynamoDb).execute().size();
-                    } catch (Exception e) {
-                        log.error("Error executing the query", e);
-                    }
-                    return size;
+                .map(query -> {
+                    Validate.notNull(query, "query can't be null");
+                    return new org.json.JSONObject(query);
                 })
+                .map(query -> new DynamoDBQuery(query))
+                .map(this::runQuery)
                 .collect(Collectors.toList());
 
         // get channels which satisfy the query
@@ -136,18 +165,79 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
                 .mapToObj(i -> channels.get(i))
                 .collect(Collectors.toList());
 
-        log.info("Channels satisfied by change {}: {}", change.toString(), satisfiedChannels);
+        log.info("Channels satisfied: {}",  satisfiedChannels
+                .stream().map(chan -> chan.getChannelName()).collect(Collectors.toList()));
+
+        String jsonNotification = null;
+
+
+        log.info("Notification: {}", notif);
 
         // Delete item inserted above
         dyno.deleteItem(item);
 
         // publish to channels
-//        satisfiedChannels.stream()
-//                .forEach(chan -> chan.withRedisClient(redis).publish(change.toString()));
+        if(System.getProperty("ENV") == null || !System.getProperty("ENV").equals("dev"))
+            satisfiedChannels.stream()
+                .forEach(chan -> chan.withRedisClient(redis).publish(notif.toString()));
+
 
         Validate.isTrue(
                 dyno.getTableDescription().getItemCount() == 0,
                 "Item deleted. Count should be 0. Ctx: " + change.toString());
     }
 
+    private String getNotificationString(DynamoDBChange change, ChangeEventType eventType) {
+        Map<String, AttributeValue> item = new HashMap<>();
+        Notification notif = null;
+
+        try {
+            if(change.getEventType() == ChangeEventType.INSERT) {
+                item = change.getNewItem();
+                notif = new Notification(change.getEventType(), null, new JSONObject(item));
+            } else if(change.getEventType() == ChangeEventType.REMOVE) {
+                item = change.getOldItem();
+                notif = new Notification(change.getEventType(), new JSONObject(item),null);
+            } else if(change.getEventType() == ChangeEventType.MODIFY){
+                // override event type in case of modify
+                notif = new Notification(eventType,
+                        new JSONObject(change.getOldItem().toString()),
+                        new JSONObject(change.getNewItem().toString()));
+            }
+
+            if(notif == null) return null;
+
+            String jsonNotification = null;
+            jsonNotification = notif.toJSON().toString();
+            return jsonNotification;
+        } catch (JSONException e) {
+            log.error("error converting notification to json", e);
+            return null;
+        }
+
+
+    }
+
+    private Integer runQuery(DynamoDBQuery dynamoDBQuery) {
+        Integer size = 0;
+        try {
+            size = dynamoDBQuery.withDynamodbClient(localDynamoDb).execute().size();
+        } catch (Exception e) {
+            log.error("Error executing the query", e);
+        }
+        return size;
+    }
+
+    private ChangeEventType getEventType(Integer oldValue, Integer newValue) {
+        ChangeEventType eventType = null;
+
+        if(newValue == 1 && oldValue == 1)
+            eventType = ChangeEventType.MODIFY;
+        else if (newValue == 0 && oldValue == 1)
+            eventType = ChangeEventType.REMOVE;
+        else if (newValue == 1 && oldValue == 0)
+            eventType = ChangeEventType.INSERT;
+
+        return eventType;
+    }
 }

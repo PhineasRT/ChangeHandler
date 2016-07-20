@@ -29,6 +29,7 @@ public class DynamoDbChannel extends RedisChannel {
     private DynamoDbChannel(String channelName) {
         super();
         this.channelName = channelName;
+
         String[] parts = channelName.split(SEPARATOR);
         this.tableName = parts[0];
         this.subscriptionName = parts[1];
