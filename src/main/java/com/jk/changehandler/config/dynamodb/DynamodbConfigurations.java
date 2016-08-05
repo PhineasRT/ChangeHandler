@@ -21,7 +21,7 @@ public class DynamodbConfigurations {
 
     @Bean
     public AWSCredentialsProvider getCredentials() {
-        return new ProfileCredentialsProvider();
+        return new ProfileCredentialsProvider("users-dynamodb");
     }
 
     @Bean(name = DYNAMODB_CLIENT)
@@ -40,7 +40,12 @@ public class DynamodbConfigurations {
     public AmazonDynamoDBClient getDynamoDbLocalClient() {
         AmazonDynamoDBClient client = new AmazonDynamoDBClient(getCredentials());
         String endpoint = "http://dd-local:8000";
-        log.info("Dynamodb local endpoint {}", endpoint);
+
+        // in k8s, changeHandler, and dd-local go to same pod
+        if(System.getenv().containsKey("KUBERNETES_SERVICE_HOST")) {
+            endpoint = "http://localhost:8000";
+        }
+        log.info("[CONFIG] Dynamodb local endpoint {}", endpoint);
         client.setEndpoint(endpoint);
         return client;
     }
