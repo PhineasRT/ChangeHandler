@@ -76,7 +76,7 @@ public final class ChangeStreamProcessorWorker {
                 new KinesisClientLibConfiguration(APPLICATION_NAME, STREAM_ARN, credentialsProvider, workerId)
                     .withMaxRecords(1000)
                     .withIdleTimeBetweenReadsInMillis(500)
-                    .withInitialPositionInStream(InitialPositionInStream.TRIM_HORIZON);
+                    .withInitialPositionInStream(InitialPositionInStream.LATEST);
 
         IRecordProcessorFactory recordProcessorFactory = changeStreamProcessorFactory;
 
