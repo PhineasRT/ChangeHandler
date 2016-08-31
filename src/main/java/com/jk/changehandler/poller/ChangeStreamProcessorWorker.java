@@ -26,7 +26,7 @@ import java.util.UUID;
 public final class ChangeStreamProcessorWorker {
     private final Logger log = LogManager.getLogger(ChangeStreamProcessorWorker.class);
 
-    public static final String APPLICATION_NAME = "ChangeProcessor";
+    public static String APPLICATION_NAME;
 
     @Setter
     private String STREAM_ARN;
@@ -44,8 +44,9 @@ public final class ChangeStreamProcessorWorker {
     private ChangeStreamProcessorFactory changeStreamProcessorFactory;
 
 
-
-    private void init() {
+    private void init(String tableName) {
+        APPLICATION_NAME = tableName + "ChangeProcessor";
+        
         log.info("Initializing...");
         // Ensure the JVM will refresh the cached IP values of AWS resources (e.g. service endpoints).
         java.security.Security.setProperty("networkaddress.cache.ttl", "60");
@@ -61,8 +62,8 @@ public final class ChangeStreamProcessorWorker {
         }
     }
 
-    public void start() throws UnknownHostException {
-        init();
+    public void start(String tableName) throws UnknownHostException {
+        init(tableName);
 
         String workerId = null;
         try {

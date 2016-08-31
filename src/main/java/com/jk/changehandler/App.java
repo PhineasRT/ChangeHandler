@@ -65,7 +65,7 @@ public class App
         DynamodbConfigurations.TABLE_NAME = TABLE;
 
         init(STREAM_ARN, TABLE);
-        worker.start();
+        worker.start(TABLE);
     }
 }
 
