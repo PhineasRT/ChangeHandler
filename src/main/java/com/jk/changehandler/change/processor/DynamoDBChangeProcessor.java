@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import redis.clients.jedis.Jedis;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,39 +101,77 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
 
         dyno.putItem(oldItem);
         List<DynamoDbChannel> channels = channelClient.getAllChannels();
-        List<Integer> returnCountsOld = channels.stream()
+
+        List<DynamoDBQuery> queries = channels.stream()
             .map(QueryStore::getQueryForChannel)
             .map(org.json.JSONObject::new)
             .map(DynamoDBQuery::new)
-            .map(this::runQuery)
             .collect(Collectors.toList());
+
+        List<Integer> returnCountsOld = queries.stream()
+            .map(this::getDocCount)
+            .collect(Collectors.toList());
+
         dyno.deleteItem(oldItem);
 
         dyno.putItem(newItem);
-        List<Integer> returnCountsNew = channels.stream()
-            .map(QueryStore::getQueryForChannel)
-            .map(org.json.JSONObject::new)
-            .map(DynamoDBQuery::new)
-            .map(this::runQuery)
+        List<Integer> returnCountsNew = queries.stream()
+            .map(this::getDocCount)
             .collect(Collectors.toList());
+
         dyno.deleteItem(newItem);
+
+
 
         for(Integer i = 0; i < channels.size(); i++) {
             DynamoDbChannel chan = channels.get(i);
+
+            // modify change
+            change = modifyChange(change, queries.get(i));
+
             ChangeEventType eventType = getEventType(returnCountsOld.get(i), returnCountsNew.get(i));
             if(eventType == null) continue;
-            String notif = getNotificationString(change, eventType);
-            log.info("Chan: {}, notif: {}", chan.getChannelName(), notif);
+            String notification = getNotificationString(change, eventType);
+            log.info("Chan: {}, notification: {}", chan.getChannelName(), notification);
 
             if(System.getProperty("ENV") == null || !System.getProperty("ENV").equals("dev"))
-                chan.publish(notif.toString());
+                chan.withRedisClient(redis).publish(notification.toString());
+
+            log.info("Published notification");
         }
 
     }
 
+    private DynamoDBChange modifyChange(DynamoDBChange change, DynamoDBQuery query) {
+        Map<String, AttributeValue> oldItem = getItemForQuery(change.getOldItem(), query);
+        Map<String, AttributeValue> newItem = getItemForQuery(change.getNewItem(), query);
+
+        Record record = new Record();
+        StreamRecord dd = new StreamRecord();
+        dd.setNewImage(newItem);
+        dd.setOldImage(oldItem);
+        record.setDynamodb(dd);
+        record.setEventName(change.getEventType().name());
+        return new DynamoDBChange(record);
+    }
+
+
+    private Map<String, AttributeValue> getItemForQuery(Map<String, AttributeValue> item, DynamoDBQuery query) {
+        if(item == null)
+            return null;
+
+        dyno.putItem(item);
+        List<Map<String, AttributeValue>> list = getDocs(query);
+        if(list.size() > 1) {
+            log.error("list count must be 1", list);
+        }
+        Map<String, AttributeValue> doc = list.get(0);
+        dyno.deleteItem(item);
+        return  doc;
+    }
+
     private void handleInsertOrRemove(DynamoDBChange change, Map<String, AttributeValue> item) {
         String tableName = DynamodbConfigurations.TABLE_NAME;
-        String notif = getNotificationString(change, null);
         final PutItemResult putResult = dyno.putItem(item);
 
         Validate.isTrue(
@@ -143,44 +182,38 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         log.info("Channels count: {}", channels.size());
 
         // get all the queries corresponding to channels
-        List<String> queries = channels.stream()
+        List<DynamoDBQuery> queries = channels.stream()
                 .map(chan -> QueryStore.getQueryForChannel(chan))
+                .map(org.json.JSONObject::new)
+                .map(DynamoDBQuery::new)
                 .collect(Collectors.toList());
 
         log.info("Queries count: {}", queries.size());
 
         // execute each query against the local table
         List<Integer> returnCounts = queries.stream()
-                .map(query -> {
-                    Validate.notNull(query, "query can't be null");
-                    return new org.json.JSONObject(query);
-                })
-                .map(query -> new DynamoDBQuery(query))
-                .map(this::runQuery)
-                .collect(Collectors.toList());
-
-        // get channels which satisfy the query
-        List<DynamoDbChannel> satisfiedChannels = IntStream.range(0, channels.size())
-                .filter(i -> returnCounts.get(i) != 0)
-                .mapToObj(i -> channels.get(i))
-                .collect(Collectors.toList());
-
-        log.info("Channels satisfied: {}",  satisfiedChannels
-                .stream().map(chan -> chan.getChannelName()).collect(Collectors.toList()));
-
-        String jsonNotification = null;
-
-
-        log.info("Notification: {}", notif);
+            .map(this::getDocCount)
+            .collect(Collectors.toList());
 
         // Delete item inserted above
         dyno.deleteItem(item);
 
-        // publish to channels
-        if(System.getProperty("ENV") == null || !System.getProperty("ENV").equals("dev"))
-            satisfiedChannels.stream()
-                .forEach(chan -> chan.withRedisClient(redis).publish(notif.toString()));
+        // get channels which satisfy the query
+        List<Integer> indices = IntStream.range(0, channels.size())
+            .filter(i -> returnCounts.get(i) != 0)
+            .mapToObj(Integer::new)
+            .collect(Collectors.toList());
 
+
+        for(Integer i: indices) {
+            DynamoDBQuery query =  queries.get(i);
+            DynamoDbChannel chan = channels.get(i);
+            change = modifyChange(change, query);
+            String notification = getNotificationString(change, null);
+
+            if(System.getProperty("ENV") == null || !System.getProperty("ENV").equals("dev"))
+                chan.withRedisClient(redis).publish(notification.toString());
+        }
 
         Validate.isTrue(
                 dyno.getTableDescription().getItemCount() == 0,
@@ -218,14 +251,18 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
 
     }
 
-    private Integer runQuery(DynamoDBQuery dynamoDBQuery) {
-        Integer size = 0;
+    private List<Map<String, AttributeValue>> getDocs(DynamoDBQuery dynamoDBQuery) {
+        List<Map<String, AttributeValue>> list = new ArrayList<>();
         try {
-            size = dynamoDBQuery.withDynamodbClient(localDynamoDb).execute().size();
+            list = dynamoDBQuery.withDynamodbClient(localDynamoDb).execute();
         } catch (Exception e) {
             log.error("Error executing the query", e);
         }
-        return size;
+        return list;
+    }
+
+    private Integer getDocCount(DynamoDBQuery dynamoDBQuery) {
+        return getDocs(dynamoDBQuery).size();
     }
 
     private ChangeEventType getEventType(Integer oldValue, Integer newValue) {

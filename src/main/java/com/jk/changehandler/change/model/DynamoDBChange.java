@@ -3,6 +3,7 @@ package com.jk.changehandler.change.model;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import com.amazonaws.services.dynamodbv2.model.Record;
 import lombok.Builder;
+import lombok.Getter;
 import lombok.ToString;
 
 import java.util.Map;
@@ -10,11 +11,15 @@ import java.util.Map;
 /**
  * Model representing a dynamodb change
  */
-@Builder
 @ToString
 public class DynamoDBChange implements ChangeEvent<Map<String, AttributeValue>> {
 
-    private final Record record;
+    @Getter
+    private Record record;
+
+    public DynamoDBChange(Record r) {
+        record = r;
+    }
 
     @Override
     public Map<String, AttributeValue> getOldItem() {

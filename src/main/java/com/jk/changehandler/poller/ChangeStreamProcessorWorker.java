@@ -46,7 +46,7 @@ public final class ChangeStreamProcessorWorker {
 
     private void init(String tableName) {
         APPLICATION_NAME = tableName + "ChangeProcessor";
-        
+
         log.info("Initializing...");
         // Ensure the JVM will refresh the cached IP values of AWS resources (e.g. service endpoints).
         java.security.Security.setProperty("networkaddress.cache.ttl", "60");

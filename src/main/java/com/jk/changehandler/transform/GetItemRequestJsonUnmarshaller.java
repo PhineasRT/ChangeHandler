@@ -29,16 +29,17 @@ public class GetItemRequestJsonUnmarshaller implements Unmarshaller<GetItemReque
     /**
      * String representation of json request
      *
-     * @param jsonRequest JSONobject representing the getItem request
+     * @param jsonReqCopy JSONobject representing the getItem request
      * @return instance of GetItemRequest
      */
     public GetItemRequest unmarshall(final JSONObject jsonRequest) throws IOException {
         GetItemRequest req = new GetItemRequest();
+        JSONObject jsonReqCopy = new JSONObject(jsonRequest.toString());
 
         try {
             // parse "Key" attribute
             Map<String, AttributeValue> keyMap = new HashMap<>();
-            JSONObject keyJSONObj = jsonRequest.getJSONObject("Key");
+            JSONObject keyJSONObj = jsonReqCopy.getJSONObject("Key");
             for (final String key : keyJSONObj.keySet()) {
                 JsonParser keyParser = new JsonFactory().createParser(keyJSONObj.get(key).toString());
                 JsonUnmarshallerContext ctx = new JsonUnmarshallerContextImpl(keyParser);
@@ -47,13 +48,13 @@ public class GetItemRequestJsonUnmarshaller implements Unmarshaller<GetItemReque
             }
 
             // now that "Key" is parsed, remove it
-            jsonRequest.remove("Key");
+            jsonReqCopy.remove("Key");
 
             // convert first characters of rest of keys to lowercase
             JSONObject reducedJSONrequest = new JSONObject();
-            for(final String key: jsonRequest.keySet()) {
+            for(final String key: jsonReqCopy.keySet()) {
                 String lcKey = convertFirstCharToLowercase(key);
-                reducedJSONrequest.put(lcKey, jsonRequest.get(key));
+                reducedJSONrequest.put(lcKey, jsonReqCopy.get(key));
             }
 
             JSONParser parser = new JSONParser();
@@ -65,10 +66,10 @@ public class GetItemRequestJsonUnmarshaller implements Unmarshaller<GetItemReque
 
             return req;
         } catch (IOException e) {
-            log.error("IOException while parsing: {}", jsonRequest.toString(), e);
+            log.error("IOException while parsing: {}", jsonReqCopy.toString(), e);
             throw e;
         } catch (Exception e) {
-            log.error("Generic Exception while parsing: {}", jsonRequest.toString(), e);
+            log.error("Generic Exception while parsing: {}", jsonReqCopy.toString(), e);
             return req;
         }
     }

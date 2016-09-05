@@ -161,7 +161,7 @@ public class ChangeStreamProcessor implements IRecordProcessor {
     private void processSingleRecord(Record record) {
         if(record instanceof RecordAdapter) {
             com.amazonaws.services.dynamodbv2.model.Record change = ((RecordAdapter) record).getInternalObject();
-            DynamoDBChange dbChange = DynamoDBChange.builder().record(change).build();
+            DynamoDBChange dbChange = new DynamoDBChange(change);
             changeProcessor.process(dbChange);
         } else {
             log.fatal("The record MUST be an instance of RecordAdapter. Ctx: {}", record.toString());

@@ -6,6 +6,7 @@ import com.jk.changehandler.config.dynamodb.DynamodbConfigurations;
 import com.jk.changehandler.transform.GetItemRequestJsonUnmarshaller;
 import com.jk.changehandler.transform.QueryJsonUnmarshaller;
 import lombok.NonNull;
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang.Validate;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +19,7 @@ import java.util.Map;
 /**
  * Model to encapsulate dynamodb query/get item request
  */
+@Log4j2
 public class DynamoDBQuery implements IQuery<Map<String, AttributeValue>> {
     private DynamoDBOperationType operationType;
     private JSONObject query;
@@ -27,10 +29,13 @@ public class DynamoDBQuery implements IQuery<Map<String, AttributeValue>> {
     public DynamoDBQuery(JSONObject q) {
         if(q.getString("operation").equalsIgnoreCase("Query")) {
             this.operationType = DynamoDBOperationType.QUERY;
-        } else if(q.getString("operation").equalsIgnoreCase("GetItemRequest")) {
+        } else if(q.getString("operation").equalsIgnoreCase("GetItem")) {
             this.operationType = DynamoDBOperationType.GET_ITEM_REQUEST;
         }
 
+        if(this.operationType == null) {
+            log.info("UNSUPPORTED OPERATION TYPE: {}", q.getString("operation"));
+        }
         this.query = q.getJSONObject("params"); // json query to be executed
     }
 
