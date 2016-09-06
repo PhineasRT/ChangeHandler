@@ -29,7 +29,7 @@ public class GetItemRequestJsonUnmarshaller implements Unmarshaller<GetItemReque
     /**
      * String representation of json request
      *
-     * @param jsonReqCopy JSONobject representing the getItem request
+     * @param jsonRequest JSONobject representing the getItem request
      * @return instance of GetItemRequest
      */
     public GetItemRequest unmarshall(final JSONObject jsonRequest) throws IOException {

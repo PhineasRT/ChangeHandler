@@ -22,10 +22,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import redis.clients.jedis.Jedis;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -124,6 +121,9 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
 
 
         for(Integer i = 0; i < channels.size(); i++) {
+            if(returnCountsOld.get(i) == 0 && returnCountsNew.get(i) == 0)
+                continue;;
+
             DynamoDbChannel chan = channels.get(i);
 
             // modify change
@@ -155,7 +155,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         return new DynamoDBChange(record);
     }
 
-
+    // puts 'item' in db, then runs the 'query' on db
     private Map<String, AttributeValue> getItemForQuery(Map<String, AttributeValue> item, DynamoDBQuery query) {
         if(item == null)
             return null;
@@ -163,9 +163,13 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         dyno.putItem(item);
         List<Map<String, AttributeValue>> list = getDocs(query);
         if(list.size() > 1) {
-            log.error("list count must be 1", list);
+            log.error("list count must be 0/1", list);
         }
-        Map<String, AttributeValue> doc = list.get(0);
+
+        Map<String, AttributeValue> doc = null;
+        if(list.size() == 1)
+            doc = list.get(0);
+
         dyno.deleteItem(item);
         return  doc;
     }
@@ -204,6 +208,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
             .mapToObj(Integer::new)
             .collect(Collectors.toList());
 
+        log.info("Satisfied channel count: {}", indices.size());
 
         for(Integer i: indices) {
             DynamoDBQuery query =  queries.get(i);
@@ -227,10 +232,10 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         try {
             if(change.getEventType() == ChangeEventType.INSERT) {
                 item = change.getNewItem();
-                notif = new Notification(change.getEventType(), null, new JSONObject(item));
+                notif = new Notification(change.getEventType(), null, new JSONObject(item.toString()));
             } else if(change.getEventType() == ChangeEventType.REMOVE) {
                 item = change.getOldItem();
-                notif = new Notification(change.getEventType(), new JSONObject(item),null);
+                notif = new Notification(change.getEventType(), new JSONObject(item.toString()),null);
             } else if(change.getEventType() == ChangeEventType.MODIFY){
                 // override event type in case of modify
                 notif = new Notification(eventType,
@@ -255,6 +260,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         List<Map<String, AttributeValue>> list = new ArrayList<>();
         try {
             list = dynamoDBQuery.withDynamodbClient(localDynamoDb).execute();
+            list.removeAll(Collections.singleton(null));
         } catch (Exception e) {
             log.error("Error executing the query", e);
         }
