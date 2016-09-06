@@ -118,7 +118,8 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
 
         dyno.deleteItem(newItem);
 
-
+        // channel to Notification mapping
+        Map<DynamoDbChannel, String> satisfiedChannels = new HashMap<>();
 
         for(Integer i = 0; i < channels.size(); i++) {
             if(returnCountsOld.get(i) == 0 && returnCountsNew.get(i) == 0)
@@ -127,19 +128,26 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
             DynamoDbChannel chan = channels.get(i);
 
             // modify change
-            change = modifyChange(change, queries.get(i));
+            DynamoDBChange modifiedChange = modifyChange(change, queries.get(i));
+            ChangeEventType eventType = modifiedChange.getEventType();
 
-            ChangeEventType eventType = getEventType(returnCountsOld.get(i), returnCountsNew.get(i));
             if(eventType == null) continue;
-            String notification = getNotificationString(change, eventType);
+
+            String notification = getNotificationString(modifiedChange, eventType);
             log.info("Chan: {}, notification: {}", chan.getChannelName(), notification);
+            satisfiedChannels.put(chan, notification);
 
-            if(System.getProperty("ENV") == null || !System.getProperty("ENV").equals("dev"))
-                chan.withRedisClient(redis).publish(notification.toString());
-
-            log.info("Published notification");
         }
 
+        log.info("Satisfied channels: {}", satisfiedChannels.size());
+
+        for(DynamoDbChannel chan: satisfiedChannels.keySet()) {
+            String notification = satisfiedChannels.get(chan);
+            if(System.getProperty("ENV") == null || !System.getProperty("ENV").equals("dev"))
+                chan.withRedisClient(redis).publish(notification.toString());
+        }
+
+        log.info("Published notifications");
     }
 
     private DynamoDBChange modifyChange(DynamoDBChange change, DynamoDBQuery query) {
@@ -151,7 +159,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         dd.setNewImage(newItem);
         dd.setOldImage(oldItem);
         record.setDynamodb(dd);
-        record.setEventName(change.getEventType().name());
+        record.setEventName(getEventType(oldItem, newItem).name());
         return new DynamoDBChange(record);
     }
 
@@ -213,8 +221,8 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         for(Integer i: indices) {
             DynamoDBQuery query =  queries.get(i);
             DynamoDbChannel chan = channels.get(i);
-            change = modifyChange(change, query);
-            String notification = getNotificationString(change, null);
+            DynamoDBChange modifiedChange = modifyChange(change, query);
+            String notification = getNotificationString(modifiedChange, null);
 
             if(System.getProperty("ENV") == null || !System.getProperty("ENV").equals("dev"))
                 chan.withRedisClient(redis).publish(notification.toString());
@@ -271,14 +279,27 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         return getDocs(dynamoDBQuery).size();
     }
 
-    private ChangeEventType getEventType(Integer oldValue, Integer newValue) {
+    private ChangeEventType getEventType(Integer oldDocCount, Integer newDocCount) {
         ChangeEventType eventType = null;
 
-        if(newValue == 1 && oldValue == 1)
+        if(newDocCount == 1 && oldDocCount == 1)
             eventType = ChangeEventType.MODIFY;
-        else if (newValue == 0 && oldValue == 1)
+        else if (newDocCount == 0 && oldDocCount == 1)
             eventType = ChangeEventType.REMOVE;
-        else if (newValue == 1 && oldValue == 0)
+        else if (newDocCount == 1 && oldDocCount == 0)
+            eventType = ChangeEventType.INSERT;
+
+        return eventType;
+    }
+
+    private ChangeEventType getEventType(Map<String, AttributeValue> oldItem, Map<String, AttributeValue> newItem) {
+        ChangeEventType eventType = null;
+
+        if(newItem != null && oldItem != null)
+            eventType = ChangeEventType.MODIFY;
+        else if (newItem == null && oldItem != null)
+            eventType = ChangeEventType.REMOVE;
+        else if (newItem != null && oldItem == null)
             eventType = ChangeEventType.INSERT;
 
         return eventType;
