@@ -13,7 +13,9 @@ import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 import org.svenson.JSONParser;
 
+import javax.xml.bind.UnmarshalException;
 import java.io.IOException;
+import java.text.ParseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,7 +34,7 @@ public class GetItemRequestJsonUnmarshaller implements Unmarshaller<GetItemReque
      * @param jsonRequest JSONobject representing the getItem request
      * @return instance of GetItemRequest
      */
-    public GetItemRequest unmarshall(final JSONObject jsonRequest) throws IOException {
+    public GetItemRequest unmarshall(final JSONObject jsonRequest) throws IOException, UnmarshalException {
         GetItemRequest req = new GetItemRequest();
         JSONObject jsonReqCopy = new JSONObject(jsonRequest.toString());
 
@@ -70,7 +72,7 @@ public class GetItemRequestJsonUnmarshaller implements Unmarshaller<GetItemReque
             throw e;
         } catch (Exception e) {
             log.error("Generic Exception while parsing: {}", jsonReqCopy.toString(), e);
-            return req;
+            throw new UnmarshalException(e);
         }
     }
 
