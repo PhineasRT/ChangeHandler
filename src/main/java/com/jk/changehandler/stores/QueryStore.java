@@ -9,6 +9,7 @@ import com.mashape.unirest.request.GetRequest;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.HttpClient;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
@@ -79,6 +80,9 @@ public class QueryStore {
             return body.get("query").toString();
         } catch (UnirestException e) {
             log.error("Error while making request", e);
+            return null;
+        } catch (JSONException e) {
+            log.error("Error parsing json in getQueryForChannel()", e);
             return null;
         }
 

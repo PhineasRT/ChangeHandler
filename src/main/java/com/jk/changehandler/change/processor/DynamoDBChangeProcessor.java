@@ -99,8 +99,10 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         dyno.putItem(oldItem);
         List<DynamoDbChannel> channels = channelClient.getAllChannels();
 
+
         List<DynamoDBQuery> queries = channels.stream()
             .map(QueryStore::getQueryForChannel)
+            .filter(Objects::nonNull)
             .map(org.json.JSONObject::new)
             .map(DynamoDBQuery::new)
             .collect(Collectors.toList());
@@ -196,6 +198,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         // get all the queries corresponding to channels
         List<DynamoDBQuery> queries = channels.stream()
                 .map(chan -> QueryStore.getQueryForChannel(chan))
+                .filter(Objects::nonNull)
                 .map(org.json.JSONObject::new)
                 .map(DynamoDBQuery::new)
                 .collect(Collectors.toList());
