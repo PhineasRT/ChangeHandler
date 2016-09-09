@@ -54,7 +54,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
      * the function which gets the `change` and based on
      * whether it's INSERT/REMOVE/MODIFY takes appropriate action.
      *
-     * @param change
+     * @param change database change event
      */
     @Override
     public void process(DynamoDBChange change) {
@@ -82,7 +82,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         if(! TableExists.exists(tableName)) {
             CreateTableRequest req = tableInfo.getInfo(tableName);
             try {
-                final CreateTableResult table = localDynamoDb.createTable(req);
+                localDynamoDb.createTable(req);
                 log.info("Local table does not exist. Created Table: {}", tableName);
                 TableExists.setExists(tableName);
             } catch (ResourceInUseException e) {
@@ -97,15 +97,11 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         Map<String, AttributeValue> newItem = change.getNewItem();
 
         dyno.putItem(oldItem);
-        List<DynamoDbChannel> channels = channelClient.getAllChannels();
+        List<DynamoDbChannel> allChannels = channelClient.getAllChannels();
 
-
-        List<DynamoDBQuery> queries = channels.stream()
-            .map(QueryStore::getQueryForChannel)
-            .filter(Objects::nonNull)
-            .map(org.json.JSONObject::new)
-            .map(DynamoDBQuery::new)
-            .collect(Collectors.toList());
+        Map<DynamoDbChannel, DynamoDBQuery> channelsAndQueries = getChannelsAndQueries(allChannels);
+        List<DynamoDbChannel> channels = new ArrayList<>(channelsAndQueries.keySet());
+        List<DynamoDBQuery> queries = new ArrayList<>(channelsAndQueries.values());
 
         List<Integer> returnCountsOld = queries.stream()
             .map(this::getDocCount)
@@ -125,7 +121,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
 
         for(Integer i = 0; i < channels.size(); i++) {
             if(returnCountsOld.get(i) == 0 && returnCountsNew.get(i) == 0)
-                continue;;
+                continue;
 
             DynamoDbChannel chan = channels.get(i);
 
@@ -186,23 +182,19 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
 
     private void handleInsertOrRemove(DynamoDBChange change, Map<String, AttributeValue> item) {
         String tableName = DynamodbConfigurations.TABLE_NAME;
-        final PutItemResult putResult = dyno.putItem(item);
+        dyno.putItem(item);
 
         Validate.isTrue(
                 localDynamoDb.describeTable(new DescribeTableRequest().withTableName(tableName)).getTable().getItemCount() == 1,
                 "Count should be 1. Ctx: " + change.toString());
 
-        List<DynamoDbChannel> channels = channelClient.getAllChannels();
-        log.info("Channels count: {}", channels.size());
+        List<DynamoDbChannel> allChannels = channelClient.getAllChannels();
+        log.info("Channels count: {}", allChannels.size());
 
-        // get all the queries corresponding to channels
-        List<DynamoDBQuery> queries = channels.stream()
-                .map(chan -> QueryStore.getQueryForChannel(chan))
-                .filter(Objects::nonNull)
-                .map(org.json.JSONObject::new)
-                .map(DynamoDBQuery::new)
-                .collect(Collectors.toList());
+        Map<DynamoDbChannel, DynamoDBQuery> channelsAndQueries = getChannelsAndQueries(allChannels);
 
+        List<DynamoDbChannel> channels = new ArrayList<>(channelsAndQueries.keySet());
+        List<DynamoDBQuery> queries = new ArrayList<>(channelsAndQueries.values());
         log.info("Queries count: {}", queries.size());
 
         // execute each query against the local table
@@ -214,7 +206,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         dyno.deleteItem(item);
 
         // get channels which satisfy the query
-        List<Integer> indices = IntStream.range(0, channels.size())
+        List<Integer> indices = IntStream.range(0, queries.size())
             .filter(i -> returnCounts.get(i) != 0)
             .mapToObj(Integer::new)
             .collect(Collectors.toList());
@@ -237,7 +229,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
     }
 
     private String getNotificationString(DynamoDBChange change, ChangeEventType eventType) {
-        Map<String, AttributeValue> item = new HashMap<>();
+        Map<String, AttributeValue> item;
         Notification notif = null;
 
         try {
@@ -256,9 +248,7 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
 
             if(notif == null) return null;
 
-            String jsonNotification = null;
-            jsonNotification = notif.toJSON().toString();
-            return jsonNotification;
+            return notif.toJSON().toString();
         } catch (JSONException e) {
             log.error("error converting notification to json", e);
             return null;
@@ -282,19 +272,6 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
         return getDocs(dynamoDBQuery).size();
     }
 
-    private ChangeEventType getEventType(Integer oldDocCount, Integer newDocCount) {
-        ChangeEventType eventType = null;
-
-        if(newDocCount == 1 && oldDocCount == 1)
-            eventType = ChangeEventType.MODIFY;
-        else if (newDocCount == 0 && oldDocCount == 1)
-            eventType = ChangeEventType.REMOVE;
-        else if (newDocCount == 1 && oldDocCount == 0)
-            eventType = ChangeEventType.INSERT;
-
-        return eventType;
-    }
-
     private ChangeEventType getEventType(Map<String, AttributeValue> oldItem, Map<String, AttributeValue> newItem) {
         ChangeEventType eventType = null;
 
@@ -306,5 +283,31 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
             eventType = ChangeEventType.INSERT;
 
         return eventType;
+    }
+
+    private Map<DynamoDbChannel, DynamoDBQuery> getChannelsAndQueries(List<DynamoDbChannel> allChannels) {
+        log.info("Channels count: {}", allChannels.size());
+
+        Map<DynamoDbChannel, DynamoDBQuery> channels = new HashMap<>();
+
+        List<String> stringQueries = allChannels.stream()
+                .map(QueryStore::getQueryForChannel)
+                .collect(Collectors.toList());
+
+        // remove channels with null queries
+        IntStream.range(0, stringQueries.size())
+            .forEach(i -> {
+                String queryString = stringQueries.get(i);
+                if(Objects.isNull(queryString)) {
+                    return;
+                }
+
+                DynamoDbChannel chan = allChannels.get(i);
+                org.json.JSONObject jsonQuery = new org.json.JSONObject(queryString);
+                DynamoDBQuery query = new DynamoDBQuery(jsonQuery);
+                channels.put(chan, query);
+            });
+
+        return channels;
     }
 }
