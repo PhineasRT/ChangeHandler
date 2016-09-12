@@ -14,6 +14,7 @@ import com.jk.changehandler.config.dynamodb.DynamodbConfigurations;
 import com.jk.changehandler.stores.QueryStore;
 import com.jk.changehandler.stores.TableExists;
 import com.jk.changehandler.stores.TableInfo;
+import com.jk.changehandler.transform.ItemToJson;
 import org.apache.commons.lang.Validate;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -228,17 +229,19 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
                 "Item deleted. Count should be 0. Ctx: " + change.toString());
     }
 
-    private String getNotificationString(DynamoDBChange change, ChangeEventType eventType) {
+    private String getNotificationString(DynamoDBChange change, ChangeEventType eventType)  {
         Map<String, AttributeValue> item;
         Notification notif = null;
 
         try {
             if(change.getEventType() == ChangeEventType.INSERT) {
                 item = change.getNewItem();
-                notif = new Notification(change.getEventType(), null, new JSONObject(item.toString()));
+                JSONObject json = ItemToJson.convert(item);
+                notif = new Notification(ChangeEventType.INSERT, null, json);
             } else if(change.getEventType() == ChangeEventType.REMOVE) {
                 item = change.getOldItem();
-                notif = new Notification(change.getEventType(), new JSONObject(item.toString()),null);
+                JSONObject json = ItemToJson.convert(item);
+                notif = new Notification(ChangeEventType.REMOVE, json, null);
             } else if(change.getEventType() == ChangeEventType.MODIFY){
                 // override event type in case of modify
                 notif = new Notification(eventType,
@@ -250,7 +253,10 @@ public class DynamoDBChangeProcessor implements IChangeProcessor<DynamoDBChange>
 
             return notif.toJSON().toString();
         } catch (JSONException e) {
-            log.error("error converting notification to json", e);
+            log.error("error converting notification to json " + change.toString(), e);
+            return null;
+        } catch (Exception e) {
+            log.error("generic exception convertin notification to json " + change.toString(), e);
             return null;
         }
 
